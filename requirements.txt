@@ -6,8 +6,7 @@ matplotlib==3.8.3
 requests
 urllib3
 scikit-learn
-jax
-jaxlib
+jax[cpu]
 flax
 optax
 psycopg2-binary

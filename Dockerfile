@@ -2,9 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# JAX must run on CPU on Digital Ocean (no GPU/TPU)
+ENV JAX_PLATFORMS=cpu
+ENV XLA_FLAGS=--xla_force_host_platform_device_count=1
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
