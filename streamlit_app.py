@@ -37,16 +37,21 @@ def load_data():
 
 try:
     df = load_data()
+    if df.empty:
+        st.error("❌ No data found in database. Please run upload_to_db.py to load your CSV data.")
+        st.stop()
     st.sidebar.success(f"✅ Loaded {len(df):,} rows from database.")
 except Exception as e:
     st.error(f"❌ Database Connection Error: {e}")
     st.stop()
 
 # --- 3. LIVE RAIL API ---
-try:
-    api_key = os.environ.get("RAIL_API_KEY") or st.secrets.get("RAIL_API_KEY")
-except:
-    api_key = None
+api_key = os.environ.get("RAIL_API_KEY")
+if not api_key:
+    try:
+        api_key = st.secrets.get("RAIL_API_KEY")
+    except:
+        api_key = None
 
 if not api_key:
     st.warning("⚠️ RAIL_API_KEY not found. Skipping live status.")
@@ -66,6 +71,10 @@ st.subheader("🧠 Training JAX Predictive Model")
 df['EVENT_DATETIME'] = pd.to_datetime(df['EVENT_DATETIME'], errors='coerce')
 df = df.dropna(subset=['EVENT_DATETIME']).sort_values('EVENT_DATETIME')
 daily = df.groupby(df['EVENT_DATETIME'].dt.date)[['PFPI_MINUTES']].sum().reset_index()
+
+if daily.empty:
+    st.error("❌ No valid data after processing. Check your database contents.")
+    st.stop()
 
 # JAX Model Setup
 class JaxRouteModel(nn.Module):
