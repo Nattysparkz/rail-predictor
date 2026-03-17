@@ -1,0 +1,28 @@
+# Digital Ocean App Platform Specification
+# Deploy with: doctl apps create --spec .do/app.yaml
+# Or paste this into the App Platform dashboard under "App Spec"
+
+name: trainjax-rail-predictor
+region: lon1  # London - closest to Manchester
+
+services:
+  - name: streamlit-app
+    github:
+      repo: Nattysparkz/rail-predictor
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    http_port: 8501
+    instance_count: 1
+    instance_size_slug: basic-s    # $5/mo - 512MB RAM, 1 vCPU (bump to basic-m for JAX)
+    routes:
+      - path: /
+    health_check:
+      http_path: /_stcore/health
+      initial_delay_seconds: 30
+      period_seconds: 15
+    envs:
+      - key: RAIL_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: "YOUR_RAIL_API_KEY_HERE"
