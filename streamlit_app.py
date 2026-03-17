@@ -1,6 +1,5 @@
 import os
-# ---  SYSTEM CHECK & SILENCE WARNINGS ---
-# THIS MUST BE AT THE VERY TOP BEFORE ANY JAX IMPORTS
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 os.environ['JAX_PLATFORMS'] = 'cpu' 
 
