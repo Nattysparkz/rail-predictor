@@ -1,5 +1,4 @@
 streamlit==1.32.2
-gdown
 altair==5.2.0
 pandas==2.2.1
 numpy==1.26.4
@@ -11,3 +10,5 @@ jax
 jaxlib
 flax
 optax
+psycopg2-binary
+ 

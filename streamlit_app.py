@@ -1,13 +1,12 @@
 import streamlit as st
 import os
-import gdown
 import pandas as pd
 import numpy as np
-import glob
 import matplotlib.pyplot as plt
 from datetime import datetime
 import requests
 import urllib3
+import psycopg2
 
 # 🚀 JAX & DEEPMIND LIBRARIES
 import jax
@@ -20,47 +19,42 @@ from sklearn.preprocessing import MinMaxScaler
 st.set_page_config(page_title="Manchester Rail Forecast", layout="wide")
 st.title("🚉 Manchester to Euston JAX Forecast")
 
-# --- 2. DOWNLOAD DATA FROM GOOGLE DRIVE ---
-FOLDER_ID = '1tzkHiffcIa-ZG_Evh3cY6huA-4fx4p2e'
-DATA_DIR = 'drive_data'
-
-@st.cache_resource(show_spinner="Downloading data from Google Drive...")
-def download_folder():
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-    # This downloads the entire folder content into DATA_DIR
-    url = f'https://drive.google.com/drive/folders/{FOLDER_ID}'
-    gdown.download_folder(url, output=DATA_DIR, quiet=True, use_cookies=False)
-    return DATA_DIR
-
-try:
-    path = download_folder()
-    # Find all CSVs in the downloaded folder
-    all_files = glob.glob(os.path.join(path, "*.csv"))
-    if not all_files:
-        st.error("No CSV files found in the Drive folder. Check folder permissions!")
+# --- 2. LOAD DATA FROM DIGITAL OCEAN POSTGRESQL ---
+@st.cache_data(show_spinner="Loading data from database...", ttl=3600)
+def load_data():
+    db_url = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL")
+    if not db_url:
+        st.error("❌ DATABASE_URL not configured. Add it as an environment variable.")
         st.stop()
     
-    # Load and combine all CSVs
-    df_list = [pd.read_csv(f, low_memory=False) for f in all_files]
-    df = pd.concat(df_list, ignore_index=True)
-    st.sidebar.success(f"✅ Loaded {len(df):,} rows from {len(all_files)} files.")
+    conn = psycopg2.connect(db_url)
+    df = pd.read_sql("SELECT event_datetime, pfpi_minutes FROM rail_events ORDER BY event_datetime", conn)
+    conn.close()
+    
+    # Match original column names
+    df.columns = ['EVENT_DATETIME', 'PFPI_MINUTES']
+    return df
+
+try:
+    df = load_data()
+    st.sidebar.success(f"✅ Loaded {len(df):,} rows from database.")
 except Exception as e:
-    st.error(f"❌ Connection Error: {e}")
+    st.error(f"❌ Database Connection Error: {e}")
     st.stop()
 
-# --- 3. LIVE RAIL API (Same as before) ---
+# --- 3. LIVE RAIL API ---
 try:
-    api_key = st.secrets["RAIL_API_KEY"]
+    api_key = os.environ.get("RAIL_API_KEY") or st.secrets.get("RAIL_API_KEY")
 except:
-    st.warning("⚠️ RAIL_API_KEY not found in Secrets. Skipping live status.")
     api_key = None
+
+if not api_key:
+    st.warning("⚠️ RAIL_API_KEY not found. Skipping live status.")
 
 if api_key:
     st.subheader("📡 Live Route Status")
     manchester_line = ['MAN', 'SPT', 'MAC', 'SOT', 'CRE', 'RUG', 'MKC', 'EUS']
     cols = st.columns(len(manchester_line))
-    # (Simplified live check for display speed)
     for i, station in enumerate(manchester_line):
         cols[i].metric(station, "Scanning...")
 
@@ -69,7 +63,7 @@ st.divider()
 st.subheader("🧠 Training JAX Predictive Model")
 
 # Preprocessing
-df['EVENT_DATETIME'] = pd.to_datetime(df['EVENT_DATETIME'].astype(str).str[:10], errors='coerce')
+df['EVENT_DATETIME'] = pd.to_datetime(df['EVENT_DATETIME'], errors='coerce')
 df = df.dropna(subset=['EVENT_DATETIME']).sort_values('EVENT_DATETIME')
 daily = df.groupby(df['EVENT_DATETIME'].dt.date)[['PFPI_MINUTES']].sum().reset_index()
 
