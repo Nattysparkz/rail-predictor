@@ -41,20 +41,63 @@ print("📡 --- SCANNING LIVE DEPARTURES (MAN to EUS) ---")
 
 api_key = os.environ.get("RAIL_API_KEY", "EhPYIKPzBrWdoIqeA6u1hGc54eJSCcZxiGGgGqfGSwkwuGVQ")
 manchester_line = ['MAN', 'SPT', 'MAC', 'SOT', 'CRE', 'RUG', 'MKC', 'EUS'] 
-headers = {'x-apikey': api_key, 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+consumer_secret = os.environ.get("RAIL_API_SECRET", "21D2LAgmc11iBFNQFpjzmspElbkXTEMapngoc74Guutj9NZqdBoz8574DQWVkkrg")
+headers = {
+    'x-apikey': api_key,
+    'Accept': 'application/json',
+    'User-Agent': 'TrainJAX-RailPredictor/1.0',
+    'Content-Type': 'application/json'
+}
 
 total_line_delay_mins = 0
 total_line_delayed_trains = 0
 api_available = False
 live_results = []
+api_debug_log = []
 
 for station in manchester_line:
     current_api_time = datetime.now().strftime("%Y%m%dT%H%M%S")
-    api_url = f"https://api1.raildata.org.uk/1010-live-departure-board---staff-version1_0/LDBSVWS/api/20220120/GetDepBoardWithDetails/{station}/{current_api_time}?numRows=10&timeWindow=120"
+    
+    # Try detailed board first, then simpler endpoint as fallback
+    api_urls = [
+        f"https://api1.raildata.org.uk/1010-live-departure-board---staff-version1_0/LDBSVWS/api/20220120/GetDepBoardWithDetails/{station}/{current_api_time}?numRows=10&timeWindow=120",
+        f"https://api1.raildata.org.uk/1010-live-departure-board---staff-version1_0/LDBSVWS/api/20220120/GetDepartureBoardByCRS/{station}/{current_api_time}?numRows=10&timeWindow=120",
+    ]
+    
+    response = None
+    for url in api_urls:
+        endpoint_name = url.split('/')[-3]
+        try:
+            response = requests.get(url, headers=headers, timeout=15, verify=True)
+            if response.status_code == 200:
+                api_debug_log.append(f"✅ {station}: {endpoint_name} → 200 OK")
+                break
+            api_debug_log.append(f"⚠️ {station}: {endpoint_name} → {response.status_code}")
+            print(f"⚠️ {station}: {endpoint_name} returned {response.status_code}")
+        except requests.exceptions.SSLError as e:
+            api_debug_log.append(f"🔒 {station}: {endpoint_name} → SSL Error, retrying without verify...")
+            try:
+                response = requests.get(url, headers=headers, timeout=15, verify=False)
+                if response.status_code == 200:
+                    api_debug_log.append(f"✅ {station}: {endpoint_name} → 200 OK (no SSL verify)")
+                    break
+                api_debug_log.append(f"⚠️ {station}: {endpoint_name} → {response.status_code} (no SSL verify)")
+            except Exception as e2:
+                api_debug_log.append(f"❌ {station}: {endpoint_name} → SSL retry failed: {str(e2)[:80]}")
+                continue
+        except requests.exceptions.Timeout:
+            api_debug_log.append(f"⏱️ {station}: {endpoint_name} → Timeout (15s)")
+            continue
+        except requests.exceptions.ConnectionError as e:
+            api_debug_log.append(f"❌ {station}: {endpoint_name} → Connection Error: {str(e)[:80]}")
+            continue
+        except Exception as e:
+            api_debug_log.append(f"❌ {station}: {endpoint_name} → {str(e)[:80]}")
+            print(f"⚠️ {station}: {e}")
+            continue
     
     try:
-        response = requests.get(api_url, headers=headers, timeout=10, verify=False)
-        if response.status_code == 200:
+        if response and response.status_code == 200:
             api_available = True
             live_data = response.json()
             trainServices = live_data.get('trainServices', [])
@@ -126,8 +169,9 @@ for station in manchester_line:
             else:
                 live_results.append({'station': station, 'status': '🟢 OK', 'delay': 0})
         else:
-            print(f"⚠️ {station}: API Error {response.status_code}")
-            live_results.append({'station': station, 'status': f'⚠️ {response.status_code}', 'delay': 0})
+            status_code = response.status_code if response else "No response"
+            print(f"⚠️ {station}: API Error {status_code}")
+            live_results.append({'station': station, 'status': f'⚠️', 'delay': 0})
     except Exception as e:
          print(f"⚠️ {station}: Connection Failed")
          live_results.append({'station': station, 'status': '⚠️', 'delay': 0})
@@ -152,6 +196,13 @@ else:
         "Live data will appear automatically when the connection is restored. "
         f"Last checked: {datetime.now().strftime('%H:%M:%S %d %b %Y')}"
     )
+
+# Show API debug info
+with st.expander("🔧 API Connection Debug Log"):
+    for log_line in api_debug_log:
+        st.text(log_line)
+    if not api_debug_log:
+        st.text("No API requests were attempted.")
 
 # --- LOAD DATA FROM DIGITAL OCEAN POSTGRESQL ---
 print("📂 --- LOADING HISTORICAL DATA FROM DATABASE ---")
