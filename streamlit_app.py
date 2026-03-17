@@ -5,8 +5,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ['JAX_PLATFORMS'] = 'cpu' 
 
 import streamlit as st
-
-# --- STREAMLIT PAGE CONFIG (MUST BE FIRST ST CALL) ---
 st.set_page_config(page_title="Manchester Rail Forecast", layout="wide")
 
 import pandas as pd
@@ -47,34 +45,26 @@ headers = {'x-apikey': api_key, 'Accept': 'application/json', 'User-Agent': 'Moz
 
 total_line_delay_mins = 0
 total_line_delayed_trains = 0
+api_available = False
+live_results = []
 
-st.subheader("📡 Live Route Status")
-
-# Track how many stations we successfully reached
-api_success_count = 0
-station_results = {}
-
-for idx, station in enumerate(manchester_line):
+for station in manchester_line:
     current_api_time = datetime.now().strftime("%Y%m%dT%H%M%S")
     api_url = f"https://api1.raildata.org.uk/1010-live-departure-board---staff-version1_0/LDBSVWS/api/20220120/GetDepBoardWithDetails/{station}/{current_api_time}?numRows=10&timeWindow=120"
-    
-    station_delay_mins = 0
-    station_delayed_trains = 0
-    station_status = "⏳"
     
     try:
         response = requests.get(api_url, headers=headers, timeout=10, verify=False)
         if response.status_code == 200:
-            api_success_count += 1
+            api_available = True
             live_data = response.json()
             trainServices = live_data.get('trainServices', [])
             
+            station_delay_mins, station_delayed_trains = 0, 0
             print(f"\n📍 {station} DEPARTURES:")
             
             if not trainServices:
                 print("  ↳ No trains scheduled in the next 120 minutes.")
-                station_status = "⚪ None"
-                station_results[station] = station_status
+                live_results.append({'station': station, 'status': '⚪ None', 'delay': 0})
                 continue
 
             for train in trainServices[:6]: 
@@ -127,32 +117,33 @@ for idx, station in enumerate(manchester_line):
                     display_time = str(std)[:5]
                 
                 print(f"  ↳ To: {destination[:15]:<15} | Due: {display_time} | {status}")
-            
+                
             total_line_delay_mins += station_delay_mins
             total_line_delayed_trains += station_delayed_trains
             
             if station_delay_mins > 0:
-                station_status = f"🔴 {int(station_delay_mins)}m"
+                live_results.append({'station': station, 'status': f'🔴 {int(station_delay_mins)}m', 'delay': station_delay_mins})
             else:
-                station_status = "🟢 OK"
+                live_results.append({'station': station, 'status': '🟢 OK', 'delay': 0})
         else:
             print(f"⚠️ {station}: API Error {response.status_code}")
-            station_status = "⚠️"
+            live_results.append({'station': station, 'status': f'⚠️ {response.status_code}', 'delay': 0})
     except Exception as e:
-        print(f"⚠️ {station}: Connection Failed - {e}")
-        station_status = "⚠️"
+         print(f"⚠️ {station}: Connection Failed")
+         live_results.append({'station': station, 'status': '⚠️', 'delay': 0})
     
-    station_results[station] = station_status
-    time.sleep(0.5)
+    time.sleep(1)
 
 print("-" * 55)
 print(f"📊 LIVE ROUTE SNAPSHOT: {total_line_delayed_trains} trains delayed/cancelled on the mainline, totaling ~{total_line_delay_mins} minutes right now.\n")
 
-# Display results based on whether the API was reachable
-if api_success_count > 0:
+# --- DISPLAY LIVE STATUS IN STREAMLIT ---
+st.subheader("📡 Live Route Status")
+
+if api_available:
     status_cols = st.columns(len(manchester_line))
-    for i, station in enumerate(manchester_line):
-        status_cols[i].metric(station, station_results.get(station, "⚠️"))
+    for i, result in enumerate(live_results):
+        status_cols[i].metric(result['station'], result['status'])
     st.info(f"📊 Live snapshot: {total_line_delayed_trains} trains delayed/cancelled, ~{int(total_line_delay_mins)} minutes total delay")
 else:
     st.warning(
@@ -216,8 +207,8 @@ daily_performance['EVENT_DATETIME'] = pd.to_datetime(daily_performance['EVENT_DA
 today_date_pd = pd.to_datetime(datetime.now().date())
 
 if today_date_pd in daily_performance['EVENT_DATETIME'].values:
-    idx_today = daily_performance.index[daily_performance['EVENT_DATETIME'] == today_date_pd][0]
-    daily_performance.at[idx_today, 'TOTAL_COMBINED_MINUTES'] += total_line_delay_mins
+    idx = daily_performance.index[daily_performance['EVENT_DATETIME'] == today_date_pd][0]
+    daily_performance.at[idx, 'TOTAL_COMBINED_MINUTES'] += total_line_delay_mins
 else:
     new_row = pd.DataFrame({
         'EVENT_DATETIME': [today_date_pd],
@@ -345,7 +336,7 @@ zoomed_actuals = valid_plot[valid_plot['EVENT_DATETIME'] >= zoom_start_date]
 st.subheader("📈 30-Day JAX Forecast")
 
 fig, ax = plt.subplots(figsize=(16, 7))
-ax.set_title('Manchester to Euston: JAX Model 30-Day Forecast', fontsize=16, fontweight='bold')
+ax.set_title(f'Manchester to Euston: JAX Model 30-Day Forecast', fontsize=16, fontweight='bold')
 
 ax.plot(zoomed_actuals['EVENT_DATETIME'], zoomed_actuals['TOTAL_COMBINED_MINUTES'], 
          label='Actual Delay Minutes (Last 30 Days)', color='darkorange', linewidth=2.5, marker='o')
