@@ -49,7 +49,10 @@ total_line_delay_mins = 0
 total_line_delayed_trains = 0
 
 st.subheader("📡 Live Route Status")
-status_cols = st.columns(len(manchester_line))
+
+# Track how many stations we successfully reached
+api_success_count = 0
+station_results = {}
 
 for idx, station in enumerate(manchester_line):
     current_api_time = datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -57,11 +60,12 @@ for idx, station in enumerate(manchester_line):
     
     station_delay_mins = 0
     station_delayed_trains = 0
-    station_status = "🟢"
+    station_status = "⏳"
     
     try:
         response = requests.get(api_url, headers=headers, timeout=10, verify=False)
         if response.status_code == 200:
+            api_success_count += 1
             live_data = response.json()
             trainServices = live_data.get('trainServices', [])
             
@@ -70,7 +74,7 @@ for idx, station in enumerate(manchester_line):
             if not trainServices:
                 print("  ↳ No trains scheduled in the next 120 minutes.")
                 station_status = "⚪ None"
-                status_cols[idx].metric(station, station_status)
+                station_results[station] = station_status
                 continue
 
             for train in trainServices[:6]: 
@@ -133,18 +137,30 @@ for idx, station in enumerate(manchester_line):
                 station_status = "🟢 OK"
         else:
             print(f"⚠️ {station}: API Error {response.status_code}")
-            station_status = f"⚠️ {response.status_code}"
+            station_status = "⚠️"
     except Exception as e:
-        print(f"⚠️ {station}: Connection Failed")
-        station_status = "⚠️ Err"
+        print(f"⚠️ {station}: Connection Failed - {e}")
+        station_status = "⚠️"
     
-    status_cols[idx].metric(station, station_status)
-    time.sleep(1)
+    station_results[station] = station_status
+    time.sleep(0.5)
 
 print("-" * 55)
 print(f"📊 LIVE ROUTE SNAPSHOT: {total_line_delayed_trains} trains delayed/cancelled on the mainline, totaling ~{total_line_delay_mins} minutes right now.\n")
 
-st.info(f"📊 Live snapshot: {total_line_delayed_trains} trains delayed/cancelled, ~{int(total_line_delay_mins)} minutes total delay")
+# Display results based on whether the API was reachable
+if api_success_count > 0:
+    status_cols = st.columns(len(manchester_line))
+    for i, station in enumerate(manchester_line):
+        status_cols[i].metric(station, station_results.get(station, "⚠️"))
+    st.info(f"📊 Live snapshot: {total_line_delayed_trains} trains delayed/cancelled, ~{int(total_line_delay_mins)} minutes total delay")
+else:
+    st.warning(
+        "📡 **Live departure data is temporarily unavailable.** "
+        "The Rail API may be unreachable from this server — this does not affect the forecast model below. "
+        "Live data will appear automatically when the connection is restored. "
+        f"Last checked: {datetime.now().strftime('%H:%M:%S %d %b %Y')}"
+    )
 
 # --- LOAD DATA FROM DIGITAL OCEAN POSTGRESQL ---
 print("📂 --- LOADING HISTORICAL DATA FROM DATABASE ---")

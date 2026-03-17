@@ -11,4 +11,3 @@ jaxlib
 flax
 optax
 psycopg2-binary
- 

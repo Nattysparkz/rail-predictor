@@ -1,9 +1,5 @@
 """
 Upload CSV files to Digital Ocean PostgreSQL Database
-=====================================================
-Usage:
-    pip install psycopg2-binary pandas
-    python upload_to_db.py --db-url "postgresql://user:pass@host:25060/defaultdb?sslmode=require"
 """
 
 import argparse
@@ -20,6 +16,7 @@ def create_table(conn):
                 id SERIAL PRIMARY KEY,
                 event_datetime TIMESTAMP,
                 pfpi_minutes DOUBLE PRECISION,
+                non_pfpi_minutes DOUBLE PRECISION,
                 source_file TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_event_datetime ON rail_events(event_datetime);
@@ -31,27 +28,56 @@ def upload_csv(conn, filepath):
     filename = filepath.split("\\")[-1].split("/")[-1]
     print(f"📄 Loading {filename}...")
     
-    df = pd.read_csv(filepath, low_memory=False)
-    
-    if 'EVENT_DATETIME' not in df.columns or 'PFPI_MINUTES' not in df.columns:
-        print(f"   ⚠️  Skipping {filename} — missing EVENT_DATETIME or PFPI_MINUTES columns")
+    try:
+        df = pd.read_csv(filepath, low_memory=False)
+    except Exception as e:
+        print(f"   ⚠️  Could not read {filename}: {e}")
         return 0
+    
+    # Strip whitespace from column names
+    df.columns = df.columns.str.strip().str.strip('"')
+    
+    if 'EVENT_DATETIME' not in df.columns:
+        print(f"   ⚠️  Skipping {filename} — no EVENT_DATETIME column")
+        print(f"   Columns found: {list(df.columns[:10])}")
+        return 0
+    
+    if 'PFPI_MINUTES' not in df.columns:
+        print(f"   ⚠️  Skipping {filename} — no PFPI_MINUTES column")
+        return 0
+    
+    # Strip quotes from values
+    df['EVENT_DATETIME'] = df['EVENT_DATETIME'].astype(str).str.strip().str.strip('"')
+    
+    # Debug
+    print(f"   Sample dates: {df['EVENT_DATETIME'].head(3).tolist()}")
+    print(f"   Rows before parse: {len(df)}")
     
     # Parse dates - handles "05-JAN-2025 10:59" format
     df['EVENT_DATETIME'] = pd.to_datetime(df['EVENT_DATETIME'], format='mixed', dayfirst=True, errors='coerce')
-    df['PFPI_MINUTES'] = pd.to_numeric(df['PFPI_MINUTES'], errors='coerce')
-    df = df.dropna(subset=['EVENT_DATETIME', 'PFPI_MINUTES'])
+    df['PFPI_MINUTES'] = pd.to_numeric(df['PFPI_MINUTES'], errors='coerce').fillna(0)
     
-    if df.empty:
-        print(f"   ⚠️  Skipping {filename} — no valid rows after parsing")
+    if 'NON_PFPI_MINUTES' in df.columns:
+        df['NON_PFPI_MINUTES'] = pd.to_numeric(df['NON_PFPI_MINUTES'], errors='coerce').fillna(0)
+    else:
+        df['NON_PFPI_MINUTES'] = 0
+    
+    valid = df.dropna(subset=['EVENT_DATETIME'])
+    print(f"   Valid rows after parse: {len(valid)}")
+    
+    if valid.empty:
+        print(f"   ⚠️  Skipping {filename} — no valid rows")
         return 0
     
-    rows = [(row['EVENT_DATETIME'], row['PFPI_MINUTES'], filename) for _, row in df.iterrows()]
+    rows = [
+        (row['EVENT_DATETIME'], row['PFPI_MINUTES'], row['NON_PFPI_MINUTES'], filename)
+        for _, row in valid.iterrows()
+    ]
     
     with conn.cursor() as cur:
         execute_values(
             cur,
-            "INSERT INTO rail_events (event_datetime, pfpi_minutes, source_file) VALUES %s",
+            "INSERT INTO rail_events (event_datetime, pfpi_minutes, non_pfpi_minutes, source_file) VALUES %s",
             rows,
             page_size=1000
         )
@@ -62,22 +88,23 @@ def upload_csv(conn, filepath):
 def main():
     parser = argparse.ArgumentParser(description="Upload CSVs to Digital Ocean PostgreSQL")
     parser.add_argument("--db-url", required=True, help="PostgreSQL connection string")
-    parser.add_argument("--csv-dir", default=".", help="Directory containing CSV files (default: current dir)")
+    parser.add_argument("--csv-dir", default=".", help="Directory containing CSV files")
     parser.add_argument("--clear", action="store_true", help="Clear existing data before uploading")
     args = parser.parse_args()
     
     print("🔌 Connecting to database...")
     conn = psycopg2.connect(args.db_url)
+    print("✅ Connected!\n")
     
     if args.clear:
         with conn.cursor() as cur:
             cur.execute("DROP TABLE IF EXISTS rail_events;")
         conn.commit()
-        print("🗑️  Cleared existing data.")
+        print("🗑️  Cleared existing data.\n")
     
     create_table(conn)
     
-    csv_files = glob.glob(f"{args.csv_dir}/*.csv")
+    csv_files = sorted(glob.glob(f"{args.csv_dir}/*.csv"))
     if not csv_files:
         print(f"❌ No CSV files found in {args.csv_dir}")
         sys.exit(1)
