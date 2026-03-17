@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manchester Rail Forecast</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; background: #f4f4f4; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); display: inline-block; }
+        h1 { color: #2c3e50; }
+        .status { font-size: 24px; color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🚉 Manchester to Euston Forecast</h1>
+        <p>Current System Status: <strong>{{ status }}</strong></p>
+        <hr>
+        <p>Predicted Delay Load for Today:</p>
+        <div class="status">{{ delay_mins }} Minutes</div>
+    </div>
+</body>
+</html>
