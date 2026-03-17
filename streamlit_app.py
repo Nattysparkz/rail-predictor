@@ -42,18 +42,18 @@ print("📡 --- SCANNING LIVE DEPARTURES (MAN to EUS) ---")
 api_key = os.environ.get("RAIL_API_KEY", "EhPYIKPzBrWdoIqeA6u1hGc54eJSCcZxiGGgGqfGSwkwuGVQ")
 manchester_line = ['MAN', 'SPT', 'MAC', 'SOT', 'CRE', 'RUG', 'MKC', 'EUS'] 
 consumer_secret = os.environ.get("RAIL_API_SECRET", "21D2LAgmc11iBFNQFpjzmspElbkXTEMapngoc74Guutj9NZqdBoz8574DQWVkkrg")
-headers = {
-    'x-apikey': api_key,
-    'Accept': 'application/json',
-    'User-Agent': 'TrainJAX-RailPredictor/1.0',
-    'Content-Type': 'application/json'
-}
+headers = {'x-apikey': api_key, 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'}
 
 total_line_delay_mins = 0
 total_line_delayed_trains = 0
 api_available = False
 live_results = []
 api_debug_log = []
+raw_env_key = os.environ.get('RAIL_API_KEY', '')
+api_debug_log.append(f"API Key source: {'ENV' if raw_env_key else 'HARDCODED'}")
+api_debug_log.append(f"API Key length: {len(api_key)}")
+api_debug_log.append(f"API Key preview: {api_key[:8]}...{api_key[-4:]}")
+api_debug_log.append(f"Headers: {headers}")
 
 for station in manchester_line:
     current_api_time = datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -73,6 +73,10 @@ for station in manchester_line:
                 api_debug_log.append(f"✅ {station}: {endpoint_name} → 200 OK")
                 break
             api_debug_log.append(f"⚠️ {station}: {endpoint_name} → {response.status_code}")
+            try:
+                api_debug_log.append(f"   Response: {response.text[:200]}")
+            except:
+                pass
             print(f"⚠️ {station}: {endpoint_name} returned {response.status_code}")
         except requests.exceptions.SSLError as e:
             api_debug_log.append(f"🔒 {station}: {endpoint_name} → SSL Error, retrying without verify...")
