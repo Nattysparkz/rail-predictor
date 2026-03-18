@@ -1,5 +1,6 @@
 import os
-
+# ---  SYSTEM CHECK & SILENCE WARNINGS ---
+# THIS MUST BE AT THE VERY TOP BEFORE ANY JAX IMPORTS
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 os.environ['JAX_PLATFORMS'] = 'cpu' 
 
@@ -428,14 +429,49 @@ master_daily['Stress_Coefficient'] = (master_daily['Minutes'] / historical_daily
 
 st.dataframe(master_daily.tail(30), use_container_width=True)
 
+# --- SAVE PREDICTIONS TO DATABASE FOR FRONTEND ---
+try:
+    conn = psycopg2.connect(db_url)
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jax_predictions (
+                id SERIAL PRIMARY KEY,
+                forecast_date DATE,
+                predicted_minutes DOUBLE PRECISION,
+                stress_coefficient DOUBLE PRECISION,
+                data_type TEXT,
+                rmse DOUBLE PRECISION,
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS live_snapshot (
+                id SERIAL PRIMARY KEY,
+                station TEXT,
+                delay_minutes DOUBLE PRECISION,
+                status TEXT,
+                total_delayed_trains INTEGER,
+                total_delay_minutes DOUBLE PRECISION,
+                updated_at TIMESTAMP DEFAULT NOW()
+            );
+        """)
+        # Clear old predictions and write new ones
+        cur.execute("DELETE FROM jax_predictions;")
+        for _, row in master_daily.iterrows():
+            cur.execute(
+                "INSERT INTO jax_predictions (forecast_date, predicted_minutes, stress_coefficient, data_type, rmse) VALUES (%s, %s, %s, %s, %s)",
+                (row['Date'], float(row['Minutes']), float(row['Stress_Coefficient']), row['Data_Type'], float(rmse))
+            )
+        # Save live snapshot
+        cur.execute("DELETE FROM live_snapshot;")
+        for result in live_results:
+            cur.execute(
+                "INSERT INTO live_snapshot (station, delay_minutes, status, total_delayed_trains, total_delay_minutes) VALUES (%s, %s, %s, %s, %s)",
+                (result['station'], float(result['delay']), result['status'], int(total_line_delayed_trains), float(total_line_delay_mins))
+            )
+    conn.commit()
+    conn.close()
+    print("✅ Predictions and live data saved to database for frontend.")
+except Exception as e:
+    print(f"⚠️ Could not save predictions to database: {e}")
+
 print("\n🎉 JAX ROUTE PIPELINE COMPLETE!")
 st.balloons()
-
-import streamlit.components.v1 as components
-
-# Read your HTML file
-with open("index.html", "r", encoding="utf-8") as f:
-    html_content = f.read()
-
-# Display it at the top of your app
-components.html(html_content, height=200, scrolling=False)
