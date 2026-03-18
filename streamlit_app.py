@@ -475,3 +475,11 @@ except Exception as e:
 
 print("\n🎉 JAX ROUTE PIPELINE COMPLETE!")
 st.balloons()
+
+
+end_time_display = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+print(f"=======================================================")
+print(f"🕒 Pipeline completed at: {end_time_display}"                       
+      f"\nTotal execution time: {(datetime.now() - datetime.strptime(current_time_display, '%Y-%m-%d %H:%M:%S')).total_seconds():.2f} seconds"
+      f"\n======================================================="  
+    )
